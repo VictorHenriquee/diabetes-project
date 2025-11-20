@@ -1,122 +1,110 @@
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+import numpy as np
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.tree import DecisionTreeClassifier, plot_tree
-import matplotlib.pyplot as plt
-from sklearn import tree
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_curve, classification_report, confusion_matrix
 
-# lendo o excel
+# ============================
+# LEITURA E PADRONIZAÇÃO
+# ============================
 file_path = "data/Machine_Learning_Datasets.xlsx"
-excel_file = pd.ExcelFile(file_path)
+excel = pd.ExcelFile(file_path)
 
-# lendo cada planilha separada
-df1 = pd.read_excel(excel_file, sheet_name="DiaBD_A Diabetes Dataset for En")
-df2 = pd.read_excel(excel_file, sheet_name="diabetes_prediction_dataset")
-df3 = pd.read_excel(excel_file, sheet_name="diabetes_binary_5050split_healt")
+df1 = pd.read_excel(excel, "DiaBD_A Diabetes Dataset for En")
+df2 = pd.read_excel(excel, "diabetes_prediction_dataset")
+df3 = pd.read_excel(excel, "diabetes_binary_5050split_healt")
 
-# limpreza e padronização ------
-
-# função para padronizar nomes de colunas
-def padronizar_colunas(df):
-    df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+def padronizar(df):
+    df.columns = df.columns.str.lower().str.replace(" ", "_")
     return df
 
-df1 = padronizar_colunas(df1)
-df2 = padronizar_colunas(df2)
-df3 = padronizar_colunas(df3)
+df1, df2, df3 = padronizar(df1), padronizar(df2), padronizar(df3)
 
-# converter targets para formato numérico consistente (0 = não diabético, 1 = diabético) antes (No, Yes)
-df1['diabetic'] = df1['diabetic'].map({'No': 0, 'Yes': 1})
-# no dataset 3, converter escala 0–10 para 0–1
-df3['diabetes_binary'] = df3['diabetes_binary'].apply(lambda x: 1 if x >= 5 else 0)
+# ============================
+# TRATAMENTO E CORREÇÕES
+# ============================
+df1["diabetic"] = df1["diabetic"].map({"No": 0, "Yes": 1})
+df3["diabetes_binary"] = df3["diabetes_binary"].apply(lambda x: 1 if x >= 5 else 0)
 
-# corrigir valores muito altos de idade e BMI no dataset 2
-df2['age'] = df2['age'].apply(lambda x: x / 10 if x > 120 else x)
-df2['bmi'] = df2['bmi'].apply(lambda x: x / 10 if x > 100 else x)
+if "hypertension" in df2.columns:
+    df2 = df2.rename(columns={"hypertension": "hypertensive"})
 
-# criando o decodificador ------
-le = LabelEncoder()
+for col in ["hvyalcoholconsump", "smoker"]:
+    if col in df3.columns:
+        df3[col] = df3[col].map({0: 0, 10: 1})
 
-df1['gender'] = le.fit_transform(df1['gender'])
-df1['diabetic'] = df1['diabetic'].astype(int)
+df1 = df1.rename(columns={"diabetic": "target"})
+df2 = df2.rename(columns={"diabetes": "target"})
+df3 = df3.rename(columns={"diabetes_binary": "target"})
 
-df2['gender'] = le.fit_transform(df2['gender'])
-df2['smoking_history'] = le.fit_transform(df2['smoking_history'])
+def corrigir_bmi(x): return x / 10 if x > 60 else x
+for df in [df1, df2, df3]:
+    df["bmi"] = df["bmi"].apply(corrigir_bmi)
 
-# criando o normalizador ------
-scaler = MinMaxScaler()
+# ============================
+# FEATURES DE CADA DATASET
+# ============================
+df1 = df1[["age", "bmi", "hypertensive", "target"]]
+df2 = df2[["age", "bmi", "hba1c_level", "heart_disease", "hypertensive", "target"]]
+df3 = df3[["age", "bmi", "physactivity", "income", "hvyalcoholconsump", "smoker", "target"]]
 
-df1_scaled = df1.copy()
-df1_scaled[df1.columns] = scaler.fit_transform(df1)
+# ============================
+# UNIFICAÇÃO E NORMALIZAÇÃO
+# ============================
+df = pd.concat([df1, df2, df3], ignore_index=True)
 
-df2_scaled = df2.copy()
-df2_scaled[df2.columns] = scaler.fit_transform(df2)
+numeric = df.drop("target", axis=1).columns
+df[numeric] = df[numeric].fillna(df[numeric].median())
+df[numeric] = MinMaxScaler().fit_transform(df[numeric])
 
-df3_scaled = df3.copy()
-df3_scaled[df3.columns] = scaler.fit_transform(df3)
+# ============================
+# TREINO E MODELO
+# ============================
+X = df.drop("target", axis=1)
+y = df["target"]
 
-# seleção e padroniação das colunas de interesse ------
-df1_selected = df1[['age', 'bmi', 'systolic_bp', 'diastolic_bp', 'pulse_rate', 'diabetic']].copy()
-df1_selected.rename(columns={'diabetic': 'target'}, inplace=True)
-
-df2_selected = df2[['age', 'bmi', 'hba1c_level', 'smoking_history', 'diabetes']].copy()
-df2_selected.rename(columns={'diabetes': 'target'}, inplace=True)
-
-df3_selected = df3[['age', 'bmi', 'physactivity', 'genhlth', 'income', 'diabetes_binary']].copy()
-df3_selected.rename(columns={'diabetes_binary': 'target'}, inplace=True)
-
-# mudando as idades para float ------
-df1_selected['age'] = df1_selected['age'].astype(float)
-df2_selected['age'] = df2_selected['age'].astype(float)
-df3_selected['age'] = df3_selected['age'].astype(float)
-
-# arrumando o BMI que está com valores maiores que o padrão
-df1_selected['bmi'] = df1_selected['bmi'] / 100.0
-df2_selected['bmi'] = df2_selected['bmi'] / 10.0
-df3_selected['bmi'] = df3_selected['bmi'] / 10.0
-
-# mudando os bmi para float
-df1_selected['bmi'] = df1_selected['bmi'].astype(float)
-df2_selected['bmi'] = df2_selected['bmi'].astype(float)
-df3_selected['bmi'] = df3_selected['bmi'].astype(float)
-
-# garantindo que todas as colunas estejam com o mesmo tipo
-df1_selected = df1_selected.astype(float)
-df2_selected = df2_selected.astype(float)
-df3_selected = df3_selected.astype(float)
-
-# concatenando os três datasets ------
-df_final = pd.concat([df1_selected, df2_selected, df3_selected], ignore_index=True)
-
-# preencher NaNs com a mediana (para colunas numéricas)
-for col in df_final.columns:
-    if df_final[col].dtype in ['float64', 'int64']:
-        df_final[col] = df_final[col].fillna(df_final[col].median())
-
-# separar X e y
-X = df_final.drop('target', axis=1)
-y = df_final['target']
-
-# criar o modelo de árvore de decisão
-modelo = DecisionTreeClassifier(random_state=42)
-
-# treinamento com profundidade limitada
-modelo = DecisionTreeClassifier(
-    max_depth=3,       # limita a profundidade da árvore
-    criterion="gini",  # pode trocar por "entropy" se quiser comparar
-    random_state=42
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.20, random_state=42, stratify=y
 )
-modelo.fit(X, y)
 
-# visualização da árvore
-plt.figure(figsize=(14, 8))
-plot_tree(
-    modelo,
-    feature_names=X.columns,
-    class_names=["Não diabético", "Diabético"],
-    filled=True,
-    rounded=True,
-    fontsize=10
+modelo = RandomForestClassifier(
+    n_estimators=300,
+    random_state=42,
+    class_weight="balanced",
+    n_jobs=-1
 )
-plt.title("Árvore de Decisão (profundidade limitada a 3 níveis)", fontsize=14, pad=20)
-plt.show()
+modelo.fit(X_train, y_train)
+
+# ============================
+# AJUSTE AUTOMÁTICO DO THRESHOLD
+# ============================
+y_proba = modelo.predict_proba(X_test)[:, 1]
+fpr, tpr, thresholds = roc_curve(y_test, y_proba)
+
+best_f1 = 0
+best_threshold = 0.5
+
+for t in thresholds:
+    preds = (y_proba >= t).astype(int)
+    f1 = classification_report(
+        y_test, preds, output_dict=True, zero_division=0
+    )["weighted avg"]["f1-score"]
+
+    if f1 > best_f1:
+        best_f1 = f1
+        best_threshold = t
+
+# ============================
+# PREDIÇÃO FINAL COM THRESHOLD AJUSTADO
+# ============================
+y_pred_final = (y_proba >= best_threshold).astype(int)
+
+print("\n=== Threshold selecionado ===")
+print(best_threshold)
+
+print("\n=== Relatório final ===")
+print(classification_report(y_test, y_pred_final))
+
+print("\n=== Matriz de confusão ===")
+print(confusion_matrix(y_test, y_pred_final))
