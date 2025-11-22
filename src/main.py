@@ -4,6 +4,8 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # ============================
 # LEITURA E PADRONIZAÇÃO
@@ -103,8 +105,29 @@ y_pred_final = (y_proba >= best_threshold).astype(int)
 print("\n=== Threshold selecionado ===")
 print(best_threshold)
 
-print("\n=== Relatório final ===")
-print(classification_report(y_test, y_pred_final))
+importances = modelo.feature_importances_
+feature_names = X.columns
 
-print("\n=== Matriz de confusão ===")
-print(confusion_matrix(y_test, y_pred_final))
+# Gráficos
+feat_imp = (
+    pd.DataFrame({"feature": feature_names, "importance": importances})
+    .sort_values(by="importance", ascending=False)
+)
+
+plt.figure(figsize=(10, 6))
+sns.barplot(data=feat_imp, x="importance", y="feature")
+plt.title("Importância das Variáveis - Random Forest")
+plt.xlabel("Importância")
+plt.ylabel("Variável")
+plt.tight_layout()
+plt.show()
+
+cm = confusion_matrix(y_test, y_pred_final)
+
+plt.figure(figsize=(6, 5))
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False)
+plt.title("Matriz de Confusão (Threshold Ajustado)")
+plt.xlabel("Predito")
+plt.ylabel("Real")
+plt.tight_layout()
+plt.show()
